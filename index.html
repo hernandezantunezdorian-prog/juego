@@ -1,0 +1,354 @@
+<html lang="es"> 
+<head> 
+    <meta charset="UTF-8" />
+    <title>Dude Multijugador - Niveles (bombas x nivel)</title>
+    <script src="//cdn.jsdelivr.net/npm/phaser@3.11.0/dist/phaser.js"></script>
+    <style>
+        body { margin: 0; }
+    </style>
+</head>
+<body>
+
+<script>
+// ---------- Config de dificultad (selección en menú) ----------
+var dificultad = null;
+var dificultadConfig = {};
+
+// ---------- Parámetros de niveles ----------
+var nivel = 1; // comienza en nivel 1
+var bombsPerLevelIncrement = 1; // <-- +1 bomba por nivel (puedes cambiarlo)
+
+// ----------------------------
+// CONFIGURACIÓN DE PHASER
+// ----------------------------
+var config = {
+    type: Phaser.AUTO,
+    width: 800,
+    height: 600,
+    scene: [menuDificultad, juego],
+    physics: {
+        default: 'arcade',
+        arcade: {
+            gravity: { y: 300 },
+            debug: false
+        }
+    }
+};
+
+var game = new Phaser.Game(config);
+
+// ########################################################
+// #############   ESCENA: MENU DIFICULTAD   ##############
+// ########################################################
+
+function menuDificultad() {
+    Phaser.Scene.call(this, { key: "menuDificultad" });
+}
+menuDificultad.prototype = Object.create(Phaser.Scene.prototype);
+menuDificultad.prototype.constructor = menuDificultad;
+
+menuDificultad.prototype.preload = function () {
+    this.load.image('sky','polo.png');
+};
+
+menuDificultad.prototype.create = function () {
+    this.add.image(400, 300, 'sky').setScale(4);
+
+    this.add.text(230, 120, "SELECCIONA DIFICULTAD", {
+        fontSize: "40px",
+        fill: "#000"
+    });
+
+    this.add.text(320, 220, "1 - FÁCIL",   { fontSize:"30px", fill:"#00aa00" });
+    this.add.text(320, 280, "2 - NORMAL",  { fontSize:"30px", fill:"#000000" });
+    this.add.text(320, 340, "3 - DIFÍCIL", { fontSize:"30px", fill:"#aa0000" });
+    this.add.text(320, 400, "4 - EXTREMO", { fontSize:"30px", fill:"#ff0000" });
+
+    this.input.keyboard.on("keydown", (event)=>{
+        if(event.key === "1") iniciar("facil");
+        if(event.key === "2") iniciar("normal");
+        if(event.key === "3") iniciar("dificil");
+        if(event.key === "4") iniciar("extremo");
+    });
+
+    const iniciar = (dif) => {
+        dificultad = dif;
+
+        if(dif == "facil"){
+            dificultadConfig = { bombVel: 120, bombExtra: 0, gravity: 300 };
+        } else if(dif == "normal"){
+            dificultadConfig = { bombVel: 200, bombExtra: 1, gravity: 300 };
+        } else if(dif == "dificil"){
+            dificultadConfig = { bombVel: 300, bombExtra: 2, gravity: 350 };
+        } else if(dif == "extremo"){
+            dificultadConfig = { bombVel: 400, bombExtra: 3, gravity: 400 };
+        }
+
+        nivel = 1; // resetear nivel al iniciar una nueva partida
+        this.scene.start("juego");
+    };
+};
+
+
+// ########################################################
+// ###################   ESCENA: JUEGO   ###################
+// ########################################################
+
+function juego() {
+    Phaser.Scene.call(this, { key: "juego" });
+}
+juego.prototype = Object.create(Phaser.Scene.prototype);
+juego.prototype.constructor = juego;
+
+var player, player2, platforms, stars, bombs;
+var cursors, keysWASD;
+var score = 0;
+var scoreText;
+var gameOver = false;
+
+
+juego.prototype.preload = function () {
+    this.load.image('sky','polo.png');
+    this.load.image('ground', 'hielo.png');
+    this.load.image('star', 'pez.png');
+    this.load.image('bomb', 'bola.png');
+    this.load.spritesheet('dude', 'pingui.png', { frameWidth: 48, frameHeight: 48 });
+};
+
+
+juego.prototype.create = function () {
+
+    // Aplicar la gravedad base (la dificultad ya definirá la gravedad inicial)
+    this.physics.world.gravity.y = dificultadConfig.gravity;
+
+    this.add.image(400, 300, 'sky').setScale(4);
+
+    platforms = this.physics.add.staticGroup();
+    platforms.create(400, 568, 'ground').setScale(2).refreshBody();
+    platforms.create(600, 400, 'ground');
+    platforms.create(50, 250, 'ground');
+    platforms.create(750, 220, 'ground');
+
+    // Jugador 1
+    player = this.physics.add.sprite(100, 450, 'dude');
+    player.setBounce(0.2);
+    player.setCollideWorldBounds(true);
+
+    // Jugador 2 verde
+    player2 = this.physics.add.sprite(200, 450, 'dude');
+    player2.setBounce(0.2);
+    player2.setCollideWorldBounds(true);
+    player2.setTint(0x00ff55);
+
+    // Animaciones
+    this.anims.create({
+        key: 'left',
+        frames: this.anims.generateFrameNumbers('dude', { start: 0, end: 2 }),
+        frameRate: 10,
+        repeat: -1
+    });
+
+    this.anims.create({
+        key: 'turn',
+        frames: [ { key: 'dude', frame: 3 } ],
+        frameRate: 20
+    });
+
+    this.anims.create({
+        key: 'right',
+        frames: this.anims.generateFrameNumbers('dude', { start: 4, end: 6 }),
+        frameRate: 10,
+        repeat: -1
+    });
+
+    cursors = this.input.keyboard.createCursorKeys();
+    keysWASD = this.input.keyboard.addKeys({
+        up: Phaser.Input.Keyboard.KeyCodes.W,
+        left: Phaser.Input.Keyboard.KeyCodes.A,
+        right: Phaser.Input.Keyboard.KeyCodes.D
+    });
+
+    // Estrellas
+    stars = this.physics.add.group({
+        key: 'star',
+        repeat: 11,
+        setXY: { x: 12, y: 0, stepX: 70 }
+    });
+
+    stars.children.iterate(child => {
+        child.setBounceY(Phaser.Math.FloatBetween(0.4, 0.8));
+    });
+
+    bombs = this.physics.add.group();
+
+    score = 0;
+    scoreText = this.add.text(16, 16, 'Score: 0', {
+        fontSize: '32px',
+        fill: '#000'
+    });
+
+    // Colisiones
+    this.physics.add.collider(player, platforms);
+    this.physics.add.collider(player2, platforms);
+    this.physics.add.collider(stars, platforms);
+    this.physics.add.collider(bombs, platforms);
+
+    this.physics.add.overlap(player, stars, collectStar, null, this);
+    this.physics.add.overlap(player2, stars, collectStar, null, this);
+
+    this.physics.add.collider(player, bombs, hitBomb, null, this);
+    this.physics.add.collider(player2, bombs, hitBomb, null, this);
+
+    gameOver = false;
+};
+
+
+juego.prototype.update = function () {
+    if (gameOver) return;
+
+    // Movimiento jugador 1
+    if (cursors.left.isDown) {
+        player.setVelocityX(-160);
+        player.anims.play('left', true);
+    } else if (cursors.right.isDown) {
+        player.setVelocityX(160);
+        player.anims.play('right', true);
+    } else {
+        player.setVelocityX(0);
+        player.anims.play('turn');
+    }
+    if (cursors.up.isDown && player.body.touching.down) {
+        player.setVelocityY(-330);
+    }
+
+    // Movimiento jugador 2
+    if (keysWASD.left.isDown) {
+        player2.setVelocityX(-160);
+        player2.anims.play('left', true);
+    } else if (keysWASD.right.isDown) {
+        player2.setVelocityX(160);
+        player2.anims.play('right', true);
+    } else {
+        player2.setVelocityX(0);
+        player2.anims.play('turn');
+    }
+    if (keysWASD.up.isDown && player2.body.touching.down) {
+        player2.setVelocityY(-330);
+    }
+};
+
+
+// --------------------------------------------------------
+// Recolección de estrellas y generación de bombas (niveles)
+// --------------------------------------------------------
+function collectStar(playerObj, star) {
+    star.disableBody(true, true);
+
+    score += 10;
+    // actualizar texto de score
+    if (this && this.add) {
+        // si se llama desde la escena, 'this' es la escena; si no, scoreText sigue existiendo
+        scoreText.setText('Score: ' + score);
+    }
+
+    // Cuando no hay estrellas activas --> pasar de nivel
+    if (stars.countActive(true) === 0) {
+
+        // Restaurar estrellas
+        stars.children.iterate(child => {
+            child.enableBody(true, child.x, 0, true, true);
+        });
+
+        // Aumentar nivel
+        nivel += 1;
+
+        // Calcular total de bombas a crear:
+        // base = 1
+        // + dificultadConfig.bombExtra (según dificultad)
+        // + incremento por niveles: (nivel-1) * bombsPerLevelIncrement
+        var totalBombas = 1 + (dificultadConfig.bombExtra || 0) + ( (nivel - 1) * bombsPerLevelIncrement );
+
+        // Crear las bombas
+        for (let i = 0; i < totalBombas; i++) {
+            let x = Phaser.Math.Between(0, 800);
+            let bomb = bombs.create(x, 16, 'bomb');
+
+            bomb.setBounce(1);
+            bomb.setCollideWorldBounds(true);
+
+            // velocidad afecta en X; usamos la velocidad base de la dificultad si existe
+            var velBase = dificultadConfig.bombVel || 200;
+            bomb.setVelocity(
+                Phaser.Math.Between(-velBase, velBase),
+                Phaser.Math.Between(10, 50)
+            );
+
+            bomb.allowGravity = false;
+        }
+
+        // Nota: no cambiamos gravedad ni velocidad de jugador, solo generamos más bombas por nivel
+    }
+}
+
+
+// --------------------------------------------------------
+// Game Over
+// --------------------------------------------------------
+function hitBomb(playerObj, bomb) {
+    // 'this' está vinculado a la escena cuando la colisión se dispara por Phaser
+    if (this && this.physics) {
+        this.physics.pause();
+        playerObj.setTint(0xff0000);
+        gameOver = true;
+
+        this.add.text(250, 300, "GAME OVER", {
+            fontSize: "60px",
+            fill: "#ff0000"
+        });
+
+        // Reiniciar menu al presionar R
+        this.input.keyboard.once('keydown-R', () => {
+            nivel = 1; // reset nivel
+            this.scene.start("menuDificultad");
+        });
+
+        // Mostrar instrucción para volver al menú
+        this.add.text(200, 380, "Presiona R para volver al menú", {
+            fontSize: "20px",
+            fill: "#000"
+        });
+    } else {
+        // fallback si no hay contexto de escena
+        gameOver = true;
+    }
+    // BOTÓN: Reiniciar misma dificultad
+        let btnReiniciar = this.add.text(200, 330, "🔄 Reiniciar (misma dificultad)", {
+            fontSize: "28px",
+            fill: "#000",
+            backgroundColor: "#ffffff",
+            padding: { x: 10, y: 6 }
+        })
+        .setInteractive()
+        .on("pointerdown", () => {
+            // Reinicia nivel pero mantiene la dificultad actual
+            nivel = 1;
+            this.scene.restart(); 
+        });
+
+        // BOTÓN: Volver al menú de dificultad
+        let btnMenu = this.add.text(230, 400, "🏁 Volver al menú de dificultad", {
+            fontSize: "28px",
+            fill: "#000",
+            backgroundColor: "#ffffff",
+            padding: { x: 10, y: 6 }
+        })
+        .setInteractive()
+        .on("pointerdown", () => {
+            nivel = 1; 
+            this.scene.start("menuDificultad");
+        });
+}
+</script>
+
+</body>
+</html>
